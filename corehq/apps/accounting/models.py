@@ -135,6 +135,9 @@ class SoftwarePlanEdition(object):
     ENTERPRISE = "Enterprise"
     RESELLER = "Reseller"
     MANAGED_HOSTING = "Managed Hosting"
+    REPORT_BUILDER_STANDARD = "Standard with 5 Reports"
+    REPORT_BUILDER_PRO = "Pro with 5 Reports"
+    REPORT_BUILDER_ADVANCED = "Advanced with 5 Reports"
     CHOICES = (
         (COMMUNITY, COMMUNITY),
         (STANDARD, STANDARD),
@@ -143,6 +146,9 @@ class SoftwarePlanEdition(object):
         (ENTERPRISE, ENTERPRISE),
         (RESELLER, RESELLER),
         (MANAGED_HOSTING, MANAGED_HOSTING),
+        (REPORT_BUILDER_STANDARD, REPORT_BUILDER_STANDARD),
+        (REPORT_BUILDER_PRO, REPORT_BUILDER_PRO),
+        (REPORT_BUILDER_ADVANCED, REPORT_BUILDER_ADVANCED),
     )
     SELF_SERVICE_ORDER = [
         COMMUNITY,

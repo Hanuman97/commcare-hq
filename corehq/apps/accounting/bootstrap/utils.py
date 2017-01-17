@@ -40,7 +40,7 @@ def ensure_plans(config, dry_run, verbose, apps):
         )
 
         software_plan = SoftwarePlan(
-            name='%s Edition' % product.name, edition=edition, visibility=SoftwarePlanVisibility.PUBLIC
+            name='%s Edition' % product.name, edition=edition, visibility=SoftwarePlanVisibility.PUBLIC  # TODO - update name
         )
 
         if dry_run:
