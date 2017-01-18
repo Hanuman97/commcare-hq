@@ -13,7 +13,10 @@ from corehq.apps.reports.filters.fixtures import OptionalAsyncLocationFilter
 from corehq.apps.reports.standard import DatespanMixin, ProjectReport, ProjectReportParametersMixin
 from corehq.apps.reports.generic import GenericTabularReport
 from corehq.apps.reports.datatables import DataTablesColumn, DataTablesHeader, DTSortType
-from corehq.apps.sms.filters import MessageTypeFilter, EventTypeFilter, PhoneNumberFilter, EventStatusFilter
+from corehq.apps.sms.filters import (
+    MessageTypeFilter, EventTypeFilter, PhoneNumberFilter, EventStatusFilter,
+    PhoneNumberDrilldown
+)
 from corehq.const import SERVER_DATETIME_FORMAT
 from corehq.util.timezones.conversions import ServerTime
 from corehq.util.view_utils import absolute_reverse
@@ -27,6 +30,7 @@ from datetime import datetime
 from django.conf import settings
 from corehq.apps.hqwebapp.doc_info import (get_doc_info, get_doc_info_by_id,
     get_object_info, DomainMismatchException)
+from corehq.apps.sms.mixin import apply_leniency
 from corehq.apps.sms.models import (
     WORKFLOW_REMINDER,
     WORKFLOW_KEYWORD,
@@ -42,6 +46,7 @@ from corehq.apps.sms.models import (
     SMS,
     PhoneBlacklist,
     Keyword,
+    PhoneNumber,
 )
 from corehq.apps.sms.util import get_backend_name
 from corehq.apps.smsforms.models import SQLXFormsSession
@@ -1102,4 +1107,128 @@ class PhoneNumberReport(BaseCommConnectLogReport):
     slug = 'phone_number_report'
     ajax_pagination = True
     exportable = True
-    fields = []
+    fields = [
+        PhoneNumberDrilldown
+    ]
+
+    @property
+    def headers(self):
+        header = DataTablesHeader(
+            DataTablesColumn(_("Contact"), sortable=False),
+            DataTablesColumn(_("Phone Number"), sortable=False),
+            DataTablesColumn(_("Status"), sortable=False),
+            DataTablesColumn(_("Is Two-Way"), sortable=False),
+        )
+        return header
+
+    @property
+    @memoized
+    def _phone_drilldown_filter(self):
+        return PhoneNumberDrilldown.get_value(self.request, self.domain)
+
+    @property
+    @memoized
+    def filter_type(self):
+        return self._phone_drilldown_filter['filter_type']
+
+    @property
+    @memoized
+    def phone_number_filter(self):
+        value = self._phone_drilldown_filter['phone_number_filter']
+        if isinstance(value, basestring):
+            return apply_leniency(value.strip())
+
+        return None
+
+    @property
+    @memoized
+    def contact_type(self):
+        return self._phone_drilldown_filter['contact_type']
+
+    @property
+    @memoized
+    def has_phone_number(self):
+        return self._phone_drilldown_filter['has_phone_number']
+
+    @property
+    @memoized
+    def verification_status(self):
+        return self._phone_drilldown_filter['verification_status']
+
+    def _fmt_owner(self, owner_doc_type, owner_id, owner_cache):
+        doc_info = self.get_recipient_info(owner_doc_type, owner_id, owner_cache)
+        table_cell = self._fmt_contact_link(owner_id, doc_info)['html']
+        return table_cell
+
+    def _fmt_status(self, number):
+        if number.verified:
+            return "Verified"
+        elif number.pending_verification:
+            return "Verification Pending"
+        elif not (number.is_two_way or number.pending_verification) and PhoneNumber.get_reserved_number(number):
+            return "Already in use"
+        return "Not Verified"
+
+    def _get_rows(self, paginate=True, contact_info=False, include_log_id=False):
+        owner_cache = {}
+        data = self._get_queryset()
+        if paginate and self.pagination:
+            data = data[self.pagination.start:self.pagination.start + self.pagination.count]
+
+        for number in data:
+            row = [
+                self._fmt_owner(number.owner_doc_type, number.owner_id, owner_cache),
+                number.phone_number,
+                self._fmt_status(number),
+                "Yes" if number.is_two_way else "No",
+            ]
+            yield row
+
+    def _get_queryset(self):
+        query = PhoneNumber.objects.filter(domain=self.domain).order_by('phone_number', 'couch_id')
+        if self.filter_type == 'phone_number':
+            if self.phone_number_filter:
+                query = query.filter(phone_number__contains=self.phone_number_filter)
+        elif self.filter_type == 'contact':
+            if self.contact_type == 'users':
+                query = query.filter(owner_doc_type__in=['CommCareUser', 'WebUser'])
+                # also handle groups
+            elif self.contact_type == 'cases':
+                query = query.filter(owner_doc_type='CommCareCase')
+
+            if self.has_phone_number == 'That have phone numbers':
+                query = query.filter(phone_number__isnull=False)
+            elif self.has_phone_number == 'That do not have phone numbers':
+                query = query.filter(phone_number__isnull=True)
+
+            if self.verification_status == 'not_verified':
+                query = query.filter(pending_verification=False, verified=False)
+                # should also handle phone numbers already in use
+            elif self.verification_status == 'verification_pending':
+                query = query.filter(pending_verification=True)
+            elif self.verification_status == 'verified':
+                query = query.filter(verified=True)
+
+        return query
+
+    @property
+    def shared_pagination_GET_params(self):
+        return [
+            {'name': 'filter_type', 'value': self.filter_type},
+            {'name': 'phone_number_filter', 'value': self.phone_number_filter},
+            {'name': 'contact_type', 'value': self.contact_type},
+            {'name': 'has_phone_number', 'value': self.has_phone_number},
+            {'name': 'verification_status', 'value': self.verification_status},
+        ]
+
+    @property
+    def rows(self):
+        return self._get_rows()
+
+    @property
+    def total_records(self):
+        return self._get_queryset().count()
+
+    @property
+    def export_rows(self):
+        return self._get_rows(paginate=False)

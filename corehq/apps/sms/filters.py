@@ -1,7 +1,9 @@
+from django.core.urlresolvers import reverse
 from django.utils.translation import ugettext_noop, ugettext_lazy
 from corehq import toggles
-from corehq.apps.reports.filters.base import BaseMultipleOptionFilter, BaseSingleOptionFilter
+from corehq.apps.reports.filters.base import BaseMultipleOptionFilter, BaseSingleOptionFilter, BaseReportFilter, BaseDrilldownOptionFilter
 from corehq.apps.reports.filters.search import SearchFilter
+from corehq.apps.locations.util import load_locs_json, location_hierarchy_config
 from corehq.apps.sms.models import (
     WORKFLOW_REMINDER,
     WORKFLOW_KEYWORD,
@@ -73,3 +75,25 @@ class EventStatusFilter(BaseSingleOptionFilter):
 class PhoneNumberFilter(SearchFilter):
     label = ugettext_lazy("Phone Number")
     search_help_inline = ugettext_lazy("Enter a full or partial phone number to filter results")
+
+
+class PhoneNumberDrilldown(BaseReportFilter):
+    label = ugettext_noop("Phone Number")
+    slug = "phone_number_filter"
+    template = "sms/phone_number_filter.html"
+
+    @property
+    def filter_context(self):
+        return {
+            "initial_value": self.get_value(self.request, self.domain)
+        }
+
+    @classmethod
+    def get_value(cls, request, domain):
+        return {
+            'filter_type': request.GET.get('filter_type'),
+            'phone_number_filter': request.GET.get('phone_number_filter'),
+            'contact_type': request.GET.get('contact_type'),
+            'has_phone_number': request.GET.get('has_phone_number'),
+            'verification_status': request.GET.get('verification_status')
+        }
